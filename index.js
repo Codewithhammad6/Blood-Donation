@@ -5,6 +5,8 @@ import dotenv from 'dotenv';
 import cookieParser from "cookie-parser";
 import connectDB from './database/dbConnection.js';
 import { errorMiddleware } from './middlewares/error.js';
+import userRoutes from './routes/userRoute.js';
+
 dotenv.config();
 connectDB();
 
@@ -60,6 +62,7 @@ app.get('/api/health', (req, res) => {
  })
 });
 
+app.use('/api/users', userRoutes);
 
 app.use(errorMiddleware)
 

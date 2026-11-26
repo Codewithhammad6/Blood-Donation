@@ -1,81 +1,78 @@
-import {catchAsyncError} from "../middlewares/catchAsyncError.js";
-import User from "../models/userModel.js";
-import ErrorHandler from '../middlewares/error.js';
-import {sendToken} from "../utils/sendToken.js";
-import dotenv from 'dotenv';
+import { catchAsyncError } from "../middlewares/catchAsyncError.js";
+import User from "../models/userModel.js"
+import ErrorHandler from "../middlewares/error.js";
+import { sendToken } from "../utils/sendToken.js";
+import nodemailer from "nodemailer";
+import dotenv from "dotenv";
 dotenv.config();
-
 // REGISTER
 export const registerUser = catchAsyncError(async (req, res, next) => {
+  const { name, email, password, cnic } = req.body;
 
+  if (!name || !email || !password || !cnic) {
+    return next(new ErrorHandler("All fields required", 400));
+  }
+  console.log(name, email, password, cnic);
+  const emailRegex = /^\S+@\S+\.\S+$/;
+  if (!emailRegex.test(email)) {
+    return next(new ErrorHandler("Invalid email format", 400));
+  }
 
-const { name, email, password, cnic} = req.body;
+  // Check if email or cnic exists at all
+  let existingUser = await User.findOne({ $or: [{ email }, { cnic }] });
+  // If already verified, block
+  if (existingUser && existingUser.verified) {
+    return next(new ErrorHandler("Email or CNIC is already used.", 400));
+  }
 
-if (!name || !email || !password || !cnic) {
-  return next(new ErrorHandler("All fields required", 400));
-}
-console.log(name, email, password,cnic);
-const emailRegex = /^\S+@\S+\.\S+$/;
-if (!emailRegex.test(email)) {
-  return next(new ErrorHandler("Invalid email format", 400));
-}
+  // If exists but not verified → just update token + password and resend
+  if (existingUser && !existingUser.verified) {
+    existingUser.name = name;
+    existingUser.password = password;
+    existingUser.cnic = cnic;
 
-// Check if email or cnic exists at all
-let existingUser = await User.findOne({$or: [{ email },{ cnic }]});
-// If already verified, block
-if (existingUser && existingUser.verified) {
-  return next(new ErrorHandler("Email or CNIC is already used.", 400));
-}
+    const verificationToken = existingUser.generateCode();
+    await existingUser.save();
 
-// If exists but not verified → just update token + password and resend
-if (existingUser && !existingUser.verified) {
-  existingUser.name = name;
-  existingUser.password = password;
-  existingUser.cnic = cnic;
+    await sendVerificationEmail(existingUser.email, verificationToken);
 
-  const verificationToken = existingUser.generateCode();
-  await existingUser.save();
+    return res.status(200).json({
+      success: true,
+      message: "Verification code resent to your email.",
+    });
+  }
 
-  await sendVerificationEmail(existingUser.email, verificationToken);
+  // Otherwise, create new user
+  const newUser = new User({ name, email, password, cnic });
+  const verificationToken = newUser.generateCode();
+  await newUser.save();
+  await sendVerificationEmail(newUser.email, verificationToken);
 
-  return res.status(200).json({
+  res.status(201).json({
     success: true,
-    message: "Verification code resent to your email.",
+    message:
+      "User registered successfully. Please check your email for verification.",
   });
-}
-
-// Otherwise, create new user
-const newUser = new User({ name, email, password, cnic });
-const verificationToken = newUser.generateCode();
-await newUser.save();
-await sendVerificationEmail(newUser.email, verificationToken);
-
-res.status(201).json({
-  success: true,
-  message:
-    "User registered successfully. Please check your email for verification.",
-});
-
 });
 
 // SEND VERIFICATION EMAIL
 const sendVerificationEmail = async (email, verificationToken) => {
-const transporter = nodemailer.createTransport({
-  host: process.env.SMTP_HOST,
-  port: parseInt(process.env.SMTP_PORT),
-  secure: process.env.SMTP_PORT == 465,
-  auth: {
-    user: process.env.SMTP_USER,
-    pass: process.env.SMTP_PASS,
-  },
-});
+  const transporter = nodemailer.createTransport({
+    host: process.env.SMTP_HOST,
+    port: parseInt(process.env.SMTP_PORT),
+    secure: process.env.SMTP_PORT == 465,
+    auth: {
+      user: process.env.SMTP_USER,
+      pass: process.env.SMTP_PASS,
+    },
+  });
 
-const mailOptions = {
-  from: process.env.MAIL_FROM || `Blood-Donation <blood@gmail.com>`,
-  to: email,
-  bcc: process.env.SMTP_USER,
-  subject: "✨ Verify your email address",
- html: `
+  const mailOptions = {
+    from: process.env.MAIL_FROM || `Blood-Donation <blood@gmail.com>`,
+    to: email,
+    bcc: process.env.SMTP_USER,
+    subject: "✨ Verify your email address",
+    html: `
      <div style="font-family: Arial, sans-serif; background-color:#f4f4f4; padding:30px;">
   <div style="max-width:600px; margin:auto; background:#ffffff; border-radius:10px; box-shadow:0 4px 12px rgba(0,0,0,0.1); padding:25px;">
     
@@ -114,17 +111,14 @@ const mailOptions = {
 </div>
 
     `,
-  text: `Welcome to Blood-Donation! Please verify your email: ${verificationToken}`,
-};
-
+    text: `Welcome to Blood-Donation! Please verify your email: ${verificationToken}`,
+  };
 
   await transporter.sendMail(mailOptions);
 };
 
-
-
 export const verifyEmail = catchAsyncError(async (req, res, next) => {
-    const {code} = req.body;
+  const { code } = req.body;
 
   // Find user with given token
   const user = await User.findOne({ verificationToken: code });
@@ -132,16 +126,15 @@ export const verifyEmail = catchAsyncError(async (req, res, next) => {
   if (!user) {
     return next(new ErrorHandler("Invalid verification token", 400));
   }
-   if (user.verificationToken !== code) {
+  if (user.verificationToken !== code) {
     return next(new ErrorHandler("Invalid verification token", 400));
   }
-    user.verified = true;
-    user.verificationToken = undefined;
-    await user.save({ validateBeforeSave: false });
+  user.verified = true;
+  user.verificationToken = undefined;
+  await user.save({ validateBeforeSave: false });
 
-sendToken(user, 200, "successfully.", res);
+  sendToken(user, 200, "successfully.", res);
 });
-
 
 // LOGIN
 export const login = catchAsyncError(async (req, res, next) => {
@@ -159,17 +152,17 @@ export const login = catchAsyncError(async (req, res, next) => {
   // Only login verified users
   let user;
   try {
-    user = await User.findOne({ email, verified: true }).select(
-      "+password"
-    );
+    user = await User.findOne({ email, verified: true }).select("+password");
   } catch (dbError) {
-    console.error('Database error during login:', dbError);
-    return next(new ErrorHandler("Database connection error. Please try again.", 503));
+    console.error("Database error during login:", dbError);
+    return next(
+      new ErrorHandler("Database connection error. Please try again.", 503),
+    );
   }
 
   if (!user) {
     return next(
-      new ErrorHandler("Invalid credentials or email not verified", 400)
+      new ErrorHandler("Invalid credentials or email not verified", 400),
     );
   }
 
@@ -182,61 +175,60 @@ export const login = catchAsyncError(async (req, res, next) => {
   sendToken(user, 200, "User logged in successfully.", res);
 });
 
-
 export const getUserProfile = catchAsyncError(async (req, res, next) => {
-    const user = req.user;
-    res.status(200).json({
-        success: true,
-        user,
-    });
+  const user = req.user;
+  res.status(200).json({
+    success: true,
+    user,
+  });
 });
-
-
 
 export const logout = catchAsyncError(async (req, res, next) => {
   // Detect environment properly - check multiple sources for production
-  const isProduction = process.env.NODE_ENV === 'production' || process.env.VERCEL === '1';
-  
-  console.log('Logout - Environment:', process.env.NODE_ENV, 'IsProduction:', isProduction);
-  
+  const isProduction =
+    process.env.NODE_ENV === "production" || process.env.VERCEL === "1";
+
+  console.log(
+    "Logout - Environment:",
+    process.env.NODE_ENV,
+    "IsProduction:",
+    isProduction,
+  );
+
   res.cookie("blood-donation", null, {
     expires: new Date(Date.now()),
     httpOnly: true,
     secure: isProduction,
-    sameSite: isProduction ? 'none' : 'lax',
-    path: '/'
+    sameSite: isProduction ? "none" : "lax",
+    path: "/",
   });
-  
+
   res.status(200).json({
     success: true,
     message: "Logged out successfully.",
   });
 });
 
-
-
 export const forgotPassword = catchAsyncError(async (req, res, next) => {
-    const {email} = req.body;
-    const user = await User.findOne({email,verified:true});
-    if(!user){
-        return next(new ErrorHandler("User not found",400))
-    };
-   
-    const verificationToken = await user.generateCode();
-    user.verificationToken =verificationToken;
-    
-    // send verification email
-    await sendVerificationEmailForget(user.email, verificationToken);
+  const { email } = req.body;
+  const user = await User.findOne({ email, verified: true });
+  if (!user) {
+    return next(new ErrorHandler("User not found", 400));
+  }
 
-    await user.save()
+  const verificationToken = await user.generateCode();
+  user.verificationToken = verificationToken;
 
-res.status(200).json({
-    success:true,
-    message:"Verify your email"
-})
+  // send verification email
+  await sendVerificationEmailForget(user.email, verificationToken);
 
+  await user.save();
+
+  res.status(200).json({
+    success: true,
+    message: "Verify your email",
+  });
 });
-
 
 // SEND VERIFICATION EMAIL
 const sendVerificationEmailForget = async (email, verificationToken) => {
@@ -250,13 +242,13 @@ const sendVerificationEmailForget = async (email, verificationToken) => {
     },
   });
 
-const mailOptions = {
-  from: process.env.MAIL_FROM || `Blood-Donation <blood@gmail.com>`,
-  to: email,
-  cc: process.env.SMTP_USER,
+  const mailOptions = {
+    from: process.env.MAIL_FROM || `Blood-Donation <blood@gmail.com>`,
+    to: email,
+    cc: process.env.SMTP_USER,
 
-  subject: "✨ Verify your email address",
- html: `
+    subject: "✨ Verify your email address",
+    html: `
      <div style="font-family: Arial, sans-serif; background-color:#f4f4f4; padding:30px;">
   <div style="max-width:600px; margin:auto; background:#ffffff; border-radius:10px; box-shadow:0 4px 12px rgba(0,0,0,0.1); padding:25px;">
     
@@ -294,20 +286,17 @@ const mailOptions = {
 </div>
 
     `,
-  text: `Welcome to Blood-Donation! Please verify your email: ${verificationToken}`,
-};
-
+    text: `Welcome to Blood-Donation! Please verify your email: ${verificationToken}`,
+  };
 
   await transporter.sendMail(mailOptions);
 };
 
-
-
 export const verifyForgot = catchAsyncError(async (req, res, next) => {
-    const {code} = req.body;
+  const { code } = req.body;
 
   // Find user with given token
-  const user = await User.findOne({ verificationToken: code })
+  const user = await User.findOne({ verificationToken: code });
 
   if (!user) {
     return next(new ErrorHandler("Invalid verification token", 400));
@@ -315,26 +304,120 @@ export const verifyForgot = catchAsyncError(async (req, res, next) => {
   if (user.verificationToken !== code) {
     return next(new ErrorHandler("Invalid verification token", 400));
   }
- 
-  res.status(200).json({ message: "Email verified successfully" });
 
+  res.status(200).json({ message: "Email verified successfully" });
+});
+
+export const newPassword = catchAsyncError(async (req, res, next) => {
+  const { password, code } = req.body;
+  const user = await User.findOne({ verificationToken: code });
+  if (!user) {
+    return next(new ErrorHandler("Invalid token", 400));
+  }
+  user.password = password;
+  user.verificationToken = undefined;
+  await user.save();
+
+  res.status(200).json({
+    success: true,
+    message: "Password changed successfully.",
+  });
 });
 
 
-export const newPassword = catchAsyncError(async (req, res, next) => {
-    const {password,code} = req.body;
-    const user = await User.findOne({verificationToken:code});
-    if(!user){
-        return next(new ErrorHandler("Invalid token",400))
-    };
-    user.password = password;
-    user.verificationToken = undefined;
+export const updateProfile = catchAsyncError(async (req, res, next) => {
+  const { phone, bloodGroup, city, location } = req.body;
+
+  // Check required fields
+  if (
+    !phone ||
+    !bloodGroup ||
+    !city ||
+    !location
+  ) {
+    return next(new ErrorHandler("Please fill all the fields", 400));
+  }
+
+  // Find logged-in user
+  const user = await User.findById(req.user._id);
+
+  if (!user) {
+    return next(new ErrorHandler("User not found", 404));
+  }
+
+  // Data to update
+  const data = {
+    phone,
+    bloodGroup,
+    city,
+    location
+  };
+
+  // Update user profile
+  Object.assign(user, data);
+
+  await user.save();
+
+  res.status(200).json({
+    success: true,
+    message: "Profile updated successfully",
+  });
+});
+
+
+export const toggleDonorStatus = catchAsyncError(
+  async (req, res, next) => {
+
+    const user = await User.findById(req.user._id);
+
+    if (!user) {
+      return next(new ErrorHandler("User not found", 404));
+    }
+
+    user.isDonor = !user.isDonor;
+
+    // Donor OFF ho to availability bhi OFF
+    if (!user.isDonor) {
+      user.isAvailable = false;
+    }
+
     await user.save();
 
     res.status(200).json({
-        success:true,
-        message:"Password changed successfully."
+      success: true,
+      message: "Donor status updated",
+      isDonor: user.isDonor,
+      isAvailable: user.isAvailable
     });
-});
+  }
+);
+
+
+export const toggleAvailability = catchAsyncError(
+  async (req, res, next) => {
+
+    const user = await User.findById(req.user._id);
+
+    if (!user) {
+      return next(new ErrorHandler("User not found", 404));
+    }
+
+    if (!user.isDonor) {
+      return next(
+        new ErrorHandler("Enable donor status first", 400)
+      );
+    }
+
+    user.isAvailable = !user.isAvailable;
+
+    await user.save();
+
+    res.status(200).json({
+      success: true,
+      message: "Availability updated",
+      isAvailable: user.isAvailable
+    });
+  }
+);
 
 

@@ -1,5 +1,6 @@
 import mongoose from 'mongoose';
-
+import bcrypt from 'bcryptjs';
+import jwt from 'jsonwebtoken';
 const userSchema = new mongoose.Schema({
   name: {
     type: String,
@@ -12,8 +13,8 @@ email: {
   required: [true, "Email is required"],
   validate: {
     validator: function (v) {
-      return /^\w+([\.-]?\w+)*@\w+([\.-]?\w+)*(\.\w{2,3})+$/.test(v);
-    },
+  return /^\S+@\S+\.\S+$/.test(v);
+},
     message: (props) => `${props.value} is not a valid email!`,
   },
   unique: true,
@@ -46,15 +47,14 @@ cnic: {
   },
 
   location: {
-    type: {
-      type: String,
-      enum: ["Point"],
-      default: "Point"
-    },
-    coordinates: {
-      type: [Number],
-    }
+  type: {
+    type: String,
+    enum: ["Point"],
   },
+  coordinates: {
+    type: [Number],
+  }
+},
 
   isDonor: {
     type: Boolean,
