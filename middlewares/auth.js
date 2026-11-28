@@ -4,7 +4,7 @@ import ErrorHandler from "./error.js";
 import { catchAsyncError } from "./catchAsyncError.js";
 
 export const authenticateUser = catchAsyncError(async (req, res, next) => {
-  let token = req.cookies?.blood - donation;
+  let token = req.cookies.blooddonation;
 
   // Header se token lena
   if (!token && req.headers.authorization?.startsWith("Bearer ")) {

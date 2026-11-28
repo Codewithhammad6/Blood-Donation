@@ -9,7 +9,7 @@ export const sendToken = (user, statusCode, message, res) => {
   
   res
     .status(statusCode)
-    .cookie("blood-donation", token, {
+    .cookie("blooddonation", token, {
       expires: new Date(Date.now() + cookieExpireDays * 24 * 60 * 60 * 1000),
       httpOnly: true,
       secure: isProduction, // true on Vercel

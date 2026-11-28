@@ -4,15 +4,16 @@ import { authenticateUser } from "../middlewares/auth.js";
 const router = express.Router();
 
 router.post("/register", registerUser);
-router.post("/verify-email", verifyEmail);
+router.post("/verifyEmail", verifyEmail);
 router.post("/login", login);
-router.get("/profile", authenticateUser, getUserProfile);
+
+router.get("/me", authenticateUser, getUserProfile);
 router.post("/logout", authenticateUser, logout);
-router.post("/forgot-password", forgotPassword);
-router.post("/verify-forgot", verifyForgot);
-router.post("/new-password", newPassword);
+router.post("/forgot", forgotPassword);
+router.post("/verifyForgot", verifyForgot);
+router.post("/newPassword", newPassword);
 router.put("/update-profile", authenticateUser, updateProfile);
-router.put("/toggle-donor-status", authenticateUser, toggleDonorStatus);
+router.put("/toggle-donor", authenticateUser, toggleDonorStatus);
 router.put("/toggle-availability", authenticateUser, toggleAvailability);
 
 export default router;
